@@ -1,1 +1,3 @@
-# student-splitter
+pandas
+openpyxl
+st-gsheets-connection
