@@ -2,76 +2,106 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-# ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="ระบบแยกรายชื่อนักศึกษา", page_icon="🏫")
+st.set_page_config(page_title="ระบบจัดการข้อมูลนักศึกษา", layout="wide")
 
-st.title("🏫 ระบบแยกรายชื่อนักศึกษา")
-st.markdown("### อัปโหลดไฟล์เดียว แยกให้ครบทุกห้องในไฟล์เดียว (แยก Sheet)")
+# --- 1. เตรียมฐานข้อมูลจำลอง (Session State) ---
+if 'student_db' not in st.session_state:
+    st.session_state.student_db = pd.DataFrame(columns=[
+        'รุ่น', 'รหัส4ตัว', 'ชื่อ-นามสกุล', 'ระดับชั้น', 'Room'
+    ])
 
-# ส่วนคำแนะนำการใช้งาน
-with st.expander("📌 วิธีการเตรียมไฟล์ (คลิกเพื่ออ่าน)"):
-    st.write("""
-    1. ไฟล์ต้องมีหัวตาราง (คอลัมน์) ที่ชื่อว่า **Room** (ตัวพิมพ์ใหญ่ R)
-    2. ข้อมูลห้องเรียนสามารถเป็น 6/1, 6/2 หรือ 1, 2, 3 ก็ได้
-    3. รองรับไฟล์นามสกุล .csv และ .xlsx (Excel)
-    """)
+# ตัวเลือกข้อมูล
+CLASSES = ["ปี1", "ปี2"]
+ROOMS = [f"O1/{i}" for i in range(1, 16)]
 
-# 1. ส่วนการอัปโหลดไฟล์
-uploaded_file = st.file_uploader("เลือกไฟล์รายชื่อนักศึกษา", type=['csv', 'xlsx'])
+st.title("🏫 ระบบจัดการและแยกรายชื่อนักศึกษา")
 
-if uploaded_file is not None:
-    try:
-        # อ่านข้อมูลจากไฟล์ที่อัปโหลด
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
+# --- 2. ส่วนการกรอกข้อมูลใหม่ (Input Section) ---
+with st.expander("➕ เพิ่มข้อมูลนักศึกษาใหม่", expanded=True):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        batch = st.text_input("รุ่น (เช่น 67)")
+        student_id = st.text_input("รหัส4ตัว", max_chars=4)
+    with col2:
+        full_name = st.text_input("ชื่อ-นามสกุล")
+        level = st.selectbox("ระดับชั้น", CLASSES)
+    with col3:
+        room = st.selectbox("ห้องเรียน", ROOMS)
         
-        st.success("อ่านข้อมูลสำเร็จ!")
-        
-        # ตรวจสอบว่ามีคอลัมน์ Room หรือไม่
-        if 'Room' in df.columns:
-            # ดึงรายชื่อห้องทั้งหมดและเรียงลำดับ
-            rooms = sorted(df['Room'].unique())
-            
-            # เตรียมพื้นที่ในหน่วยความจำเพื่อสร้างไฟล์ Excel
-            output = BytesIO()
-            
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                for room in rooms:
-                    # กรองข้อมูลรายห้อง
-                    room_df = df[df['Room'] == room].copy()
-                    
-                    # เพิ่มคอลัมน์ลำดับที่ (นับ 1 ใหม่ทุกห้อง)
-                    room_df.insert(0, 'ลำดับ', range(1, len(room_df) + 1))
-                    
-                    # ตั้งชื่อ Sheet (จัดการตัวอักษรพิเศษที่ Excel ไม่รองรับ)
-                    clean_sheet_name = f"ห้อง {str(room).replace('/', '-')}"
-                    
-                    # เขียนลง Sheet
-                    room_df.to_excel(writer, sheet_name=clean_sheet_name, index=False)
-            
-            st.info(f"ระบบตรวจพบทั้งหมด {len(rooms)} ห้องเรียน")
-            
-            # 2. ปุ่มดาวน์โหลด
-            st.download_button(
-                label="📥 คลิกเพื่อดาวน์โหลดไฟล์แยกห้อง (Excel)",
-                data=output.getvalue(),
-                file_name="รายชื่อนักศึกษา_แยกห้องเรียบร้อย.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            
-            # แสดงตัวอย่างข้อมูลให้ดูด้านล่าง
-            st.divider()
-            st.write("🔍 ตัวอย่างข้อมูลที่อ่านได้:")
-            st.dataframe(df.head(10))
-            
+    if st.button("บันทึกข้อมูล"):
+        if batch and student_id and full_name:
+            new_data = {
+                'รุ่น': batch,
+                'รหัส4ตัว': student_id,
+                'ชื่อ-นามสกุล': full_name,
+                'ระดับชั้น': level,
+                'Room': room
+            }
+            st.session_state.student_db = pd.concat([st.session_state.student_db, pd.DataFrame([new_data])], ignore_index=True)
+            st.success(f"บันทึกข้อมูลคุณ {full_name} เรียบร้อย!")
         else:
-            st.error("❌ ไม่พบคอลัมน์ชื่อ 'Room' ในไฟล์ของคุณ กรุณาตรวจสอบหัวตาราง")
-            
-    except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการประมวลผล: {e}")
+            st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
 
-else:
-    st.write("---")
-    st.caption("รอการอัปโหลดไฟล์จากคุณ...")
+st.divider()
+
+# --- 3. ส่วนการค้นหาและแก้ไข (Search & Edit) ---
+st.subheader("🔍 ค้นหาและแก้ไขข้อมูล")
+search_query = st.text_input("ค้นหาด้วยชื่อ หรือ รหัส")
+
+if not st.session_state.student_db.empty:
+    # กรองข้อมูลตามคำค้นหา
+    mask = st.session_state.student_db['ชื่อ-นามสกุล'].str.contains(search_query) | \
+           st.session_state.student_db['รหัส4ตัว'].str.contains(search_query)
+    search_results = st.session_state.student_db[mask]
+
+    if not search_results.empty:
+        # ใช้ data_editor ของ Streamlit เพื่อให้แก้ไขข้อมูลในตารางได้เลย
+        edited_df = st.data_editor(
+            search_results, 
+            num_rows="dynamic",
+            column_config={
+                "ระดับชั้น": st.column_config.SelectboxColumn(options=CLASSES),
+                "Room": st.column_config.SelectboxColumn(options=ROOMS)
+            },
+            key="data_editor"
+        )
+        
+        # ปุ่มยืนยันการแก้ไข
+        if st.button("ยืนยันการแก้ไข/ย้ายห้อง"):
+            st.session_state.student_db.update(edited_df)
+            st.success("อัปเดตข้อมูลสำเร็จ!")
+    else:
+        st.info("ไม่พบข้อมูลที่ค้นหา")
+
+st.divider()
+
+# --- 4. ส่วนการส่งออก Excel แยกห้อง (Export) ---
+st.subheader("📥 ส่งออกข้อมูล (แยก Sheet ตามห้อง)")
+
+if st.button("เตรียมไฟล์ Excel สำหรับดาวน์โหลด"):
+    if not st.session_state.student_db.empty:
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # ดึงรายชื่อห้องที่มีข้อมูลจริงๆ
+            available_rooms = sorted(st.session_state.student_db['Room'].unique())
+            
+            for r in available_rooms:
+                room_df = st.session_state.student_db[st.session_state.student_db['Room'] == r].copy()
+                room_df.insert(0, 'ลำดับ', range(1, len(room_df) + 1))
+                
+                sheet_name = f"ห้อง {r.replace('/', '-')}"
+                room_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        
+        st.download_button(
+            label="💾 ดาวน์โหลดไฟล์ Excel",
+            data=output.getvalue(),
+            file_name="รายชื่อแยกห้อง_อัปเดตล่าสุด.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.error("ยังไม่มีข้อมูลนักศึกษาในระบบ")
+
+# แสดงตารางรวมทั้งหมดด้านล่าง
+st.write("---")
+st.write("📋 ข้อมูลทั้งหมดในระบบตอนนี้:")
+st.dataframe(st.session_state.student_db)
