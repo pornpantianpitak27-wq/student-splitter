@@ -1,99 +1,58 @@
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-from io import BytesIO
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, Border, Side
-from streamlit_gsheets import GSheetsConnection
-
-# --- 1. ตั้งค่าหน้ากระดาษ (ต้องอยู่บนสุด) ---
-st.set_page_config(page_title="ระบบจัดการนักศึกษา", layout="wide")
-
-# --- 2. เชื่อมต่อข้อมูล ---
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-def load_data():
-    try:
-        data = conn.read(spreadsheet=st.secrets["gsheet_url"], ttl=0)
-        # ล้างข้อมูลขยะ
-        for col in ['รุ่น', 'รหัสนักศึกษา', 'ชื่อ-นามสกุล', 'ระดับชั้น', 'Room']:
-            if col in data.columns:
-                data[col] = data[col].astype(str).str.replace(r'\.0$', '', regex=True)
-                data[col] = data[col].str.replace("'", "")
-                data[col] = data[col].replace('nan', '')
-        return data
-    except Exception as e:
-        st.error(f"ไม่สามารถโหลดข้อมูลจาก Google Sheets ได้: {e}")
-        return pd.DataFrame()
-
-df = load_data()
-CLASSES = ["ปี1", "ปี2"]
-ROOMS = [f"O1/{i}" for i in range(1, 16)]
-
-st.title("🏫 ระบบจัดการข้อมูลนักศึกษา")
-
-# --- 3. ส่วนกรอกข้อมูลใหม่ (Form) ---
-# ตรวจสอบว่ามีส่วนนี้ในโค้ดของคุณหรือไม่
-st.subheader("➕ เพิ่มรายชื่อนักศึกษาใหม่")
-with st.form("add_student_form", clear_on_submit=True):
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        new_batch = st.text_input("รุ่น")
-        new_id = st.text_input("รหัสนักศึกษา")
-    with c2:
-        new_name = st.text_input("ชื่อ-นามสกุล")
-        new_level = st.selectbox("ระดับชั้น", CLASSES)
-    with c3:
-        new_room = st.selectbox("ห้องเรียน", ROOMS)
-    
-    submit_btn = st.form_submit_button("💾 บันทึกรายชื่อใหม่")
-    
-    if submit_btn:
-        if new_id and new_name:
-            new_row = pd.DataFrame([{
-                "รุ่น": f"'{new_batch}",
-                "รหัสนักศึกษา": f"'{new_id}",
-                "ชื่อ-นามสกุล": new_name,
-                "ระดับชั้น": new_level,
-                "Room": new_room
-            }])
-            updated_df = pd.concat([df, new_row], ignore_index=True)
-            conn.update(spreadsheet=st.secrets["gsheet_url"], data=updated_df)
-            st.success(f"บันทึกข้อมูลคุณ {new_name} เรียบร้อย!")
-            st.rerun()
-        else:
-            st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
-
-# --- 4. ส่วนค้นหาและย้ายห้อง (Editor) ---
+# --- 4. ส่วนค้นหาและแก้ไขข้อมูล (เน้นค้นหาด้วยรหัสและแก้ไขได้ตลอด) ---
 st.divider()
-st.subheader("🔍 ค้นหาและจัดการการย้ายห้อง")
-search = st.text_input("🔎 พิมพ์ชื่อหรือรหัสเพื่อค้นหา...")
+st.subheader("🔍 ค้นหาด้วยรหัสหรือชื่อ เพื่อแก้ไขข้อมูล")
+
+# ช่องค้นหา
+search_query = st.text_input("พิมพ์รหัสนักศึกษา หรือ ชื่อ-นามสกุล เพื่อค้นหา...")
 
 if not df.empty:
-    mask = df['ชื่อ-นามสกุล'].str.contains(search, case=False, na=False) | \
-           df['รหัสนักศึกษา'].str.contains(search, case=False, na=False)
+    # กรองข้อมูลตามคำค้นหา
+    mask = df['รหัสนักศึกษา'].str.contains(search_query, case=False, na=False) | \
+           df['ชื่อ-นามสกุล'].str.contains(search_query, case=False, na=False)
+    
     filtered_df = df[mask].copy()
-    filtered_df['สาเหตุการย้าย'] = "" # คอลัมน์ชั่วคราว
-    
-    edited_df = st.data_editor(
-        filtered_df,
-        column_config={
-            "รหัสนักศึกษา": st.column_config.TextColumn(disabled=True),
-            "Room": st.column_config.SelectboxColumn(options=ROOMS),
-            "ระดับชั้น": st.column_config.SelectboxColumn(options=CLASSES)
-        },
-        key="data_editor_safe"
-    )
-    
-    if st.button("✅ ยืนยันการแก้ไข"):
-        # โค้ดบันทึกข้อมูล (เหมือนเวอร์ชันก่อนหน้า)
-        # ...
-        st.success("อัปเดตข้อมูลสำเร็จ")
-        st.rerun()
 
-# --- 5. ส่วนออกไฟล์ Excel ---
-st.divider()
-if st.button("🖨️ ออกใบรายชื่อ (Excel)"):
-    # โค้ดสร้าง Excel ตามฟอร์มต้นฉบับ
-    # ...
-    st.info("กำลังสร้างไฟล์...")
+    if not filtered_df.empty:
+        st.write(f"พบข้อมูล {len(filtered_df)} รายการ")
+        
+        # ตารางแก้ไขข้อมูล
+        # เราเปิดให้แก้ได้เกือบทุกช่อง ยกเว้นรหัสนักศึกษาที่เป็น Key หลัก
+        edited_df = st.data_editor(
+            filtered_df,
+            column_config={
+                "รหัสนักศึกษา": st.column_config.TextColumn("รหัสนักศึกษา (ห้ามแก้)", disabled=True),
+                "รุ่น": st.column_config.TextColumn("รุ่น"),
+                "ชื่อ-นามสกุล": st.column_config.TextColumn("ชื่อ-นามสกุล"),
+                "ระดับชั้น": st.column_config.SelectboxColumn("ระดับชั้น", options=CLASSES),
+                "Room": st.column_config.SelectboxColumn("ห้องเรียน", options=ROOMS),
+            },
+            key="editor_unlimited_v1",
+            use_container_width=True
+        )
+
+        if st.button("💾 บันทึกการเปลี่ยนแปลงทั้งหมด"):
+            # สร้างสำเนาข้อมูลเดิมมาเพื่อรอรับการอัปเดต
+            updated_main_df = df.copy()
+            
+            # วนลูปตามรายการที่แสดงในตารางแก้ไข
+            for index, row in edited_df.iterrows():
+                std_id = row['รหัสนักศึกษา']
+                
+                # ใช้ .loc ค้นหาแถวที่มีรหัสนักศึกษาตรงกันในฐานข้อมูลหลัก แล้วทับข้อมูลใหม่ลงไป
+                # วิธีนี้จะทำให้ข้อมูลเก่าในห้องเดิมถูกเปลี่ยนเป็นข้อมูลใหม่ทันที (ไม่เกิดชื่อซ้ำ)
+                updated_main_df.loc[updated_main_df['รหัสนักศึกษา'] == std_id, 
+                                   ['รุ่น', 'ชื่อ-นามสกุล', 'ระดับชั้น', 'Room']] = \
+                    [row['รุ่น'], row['ชื่อ-นามสกุล'], row['ระดับชั้น'], row['Room']]
+
+            # ก่อนบันทึกลง Google Sheets ต้องเติม ' นำหน้าเลขรหัสเพื่อป้องกันเลข 0 หาย
+            for col in ['รุ่น', 'รหัสนักศึกษา']:
+                updated_main_df[col] = updated_main_df[col].apply(lambda x: f"'{str(x).replace(chr(39), '')}")
+
+            # ส่งข้อมูลที่แก้ไขแล้วกลับไปยัง Google Sheets
+            conn.update(spreadsheet=st.secrets["gsheet_url"], data=updated_main_df)
+            
+            st.success("✅ แก้ไขข้อมูลเรียบร้อยแล้ว!")
+            st.rerun()
+    else:
+        if search_query:
+            st.warning("❌ ไม่พบข้อมูลรหัสหรือชื่อนี้ในระบบ")
