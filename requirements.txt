@@ -1,3 +1,2 @@
-pandas
 openpyxl
-st-gsheets-connection
+Pillow
