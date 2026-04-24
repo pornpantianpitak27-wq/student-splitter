@@ -213,4 +213,13 @@ with tab3:
     has_p2 = not df_final[df_final['ระดับชั้น'].str.contains("ปี2", na=False)].empty
 
     col1, col2 = st.columns(2)
-    with col
+    with col1:
+        st.info("📝 ใบรายชื่อ")
+        if has_p1: st.download_button("📥 โหลดใบรายชื่อ ปี 1", create_attendance_report("ปี1"), "Att_P1.xlsx", use_container_width=True)
+        if has_p2: st.download_button("📥 โหลดใบรายชื่อ ปี 2", create_attendance_report("ปี2"), "Att_P2.xlsx", use_container_width=True)
+        else: st.warning("⚠️ ไม่พบข้อมูล ปี 2")
+
+    with col2:
+        st.success("📊 ใบกรอกเกรด")
+        if has_p1: st.download_button("📥 โหลดใบเกรด ปี 1", create_grade_report("ปี1"), "Grade_P1.xlsx", use_container_width=True)
+        if has_p2: st.download_button("📥 โหลดใบเกรด ปี 2", create_grade_report("ปี2"), "Grade_P2.xlsx", use_container_width=True)
