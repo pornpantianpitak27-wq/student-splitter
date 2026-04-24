@@ -9,7 +9,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.pagebreak import Break
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. ตั้งค่าการเชื่อมต่อ ---
+# --- 1. การตั้งค่าหน้ากระดาษและเชื่อมต่อ GSheets ---
 st.set_page_config(page_title="วิทยาลัยเทคโนโลยีนนทบุรี", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -31,6 +31,7 @@ def get_logo_image():
     return None
 
 # --- 2. ฟังก์ชันสร้างใบรายชื่อ (Attendance Report) ---
+# เงื่อนไข: หัว Merge C-D / ข้อมูลแยก C-D / ตัดหน้าละ 25 คน
 def create_attendance_report(target_year):
     df_all = load_data()
     year_data = df_all[df_all['ระดับชั้น'] == target_year]
@@ -46,50 +47,61 @@ def create_attendance_report(target_year):
     for r_name in sorted(year_data['Room'].unique()):
         ws = wb.create_sheet(title=f"ใบรายชื่อ-{r_name.replace('/', '-')}")
         room_data = year_data[year_data['Room'] == r_name].sort_values('รหัสนักศึกษา')
-        ws.print_title_rows = '1:10'
+        ws.print_title_rows = '1:10' # ล็อคหัวตารางให้ซ้ำทุกหน้า
 
-        # ส่วนหัว O-V และ หัวเรื่อง
+        # ส่วนหัว O ถึง V
         ws.merge_cells('O2:V2'); ws['O2'] = "บัญชีรายชื่อนี้ใช้สำหรับ"; ws['O2'].border = border; ws['O2'].alignment = center; ws['O2'].font = f_bold
         ws.merge_cells('O3:P4'); ws['O3'] = "เช็คชื่อนักศึกษา"; ws['O3'].border = border; ws['O3'].alignment = center
         ws.merge_cells('Q3:S4'); ws['Q3'] = "เซ็นสอบกลางภาค"; ws['Q3'].border = border; ws['Q3'].alignment = center
         ws.merge_cells('T3:V4'); ws['T3'] = "เซ็นสอบปลายภาค"; ws['T3'].border = border; ws['T3'].alignment = center
+
+        # หัวข้อหลัก
         ws.merge_cells('A5:V5'); ws['A5'] = "บัญชีรายชื่อนักศึกษา ภาคเรียนที่ 1 ปีการศึกษา 2568"; ws['A5'].font = f_bold; ws['A5'].alignment = center
         ws.merge_cells('A6:V6'); ws['A6'] = f"ระดับ ปวส. ชั้นปีที่ {target_year[2:]} ห้อง {r_name} ศูนย์บางแค"; ws['A6'].font = f_bold; ws['A6'].alignment = center
-
-        # หัวตาราง (Merge C-D เฉพาะหัว)
+        
+        # หัวตาราง (Merge C-D เฉพาะส่วนหัวตามที่แจ้ง)
         ws.merge_cells('A8:A10'); ws['A8'] = "เลขที่"
         ws.merge_cells('B8:B10'); ws['B8'] = "รหัสประจำตัว"
         ws.merge_cells('C8:D10'); ws['C8'] = "ชื่อ-สกุล"
         ws['E8']="เดือน"; ws['E9']="วันที่"; ws['E10']="คาบ"; ws.merge_cells('V8:V10'); ws['V8']="หมายเหตุ"
         for i in range(1, 17): ws.cell(row=10, column=5+i).value = i
+
         for r in range(8, 11):
             for c in range(1, 23):
                 cell = ws.cell(row=r, column=c); cell.border = border; cell.alignment = center; cell.font = f_bold
 
-        # ข้อมูลนักศึกษา (แยก C-D)
+        # ใส่ข้อมูลนักศึกษา (แยกคอลัมน์ C และ D)
         for i, row in enumerate(room_data.itertuples(), 1):
             curr = 10 + i
             ws.cell(row=curr, column=1).value = i
             ws.cell(row=curr, column=2).value = row.รหัสนักศึกษา
-            ws.cell(row=curr, column=3).value = row.ชื่อ      # ชื่อลง C
-            ws.cell(row=curr, column=4).value = row.นามสกุล  # นามสกุลลง D
+            ws.cell(row=curr, column=3).value = row.ชื่อ      # ชื่อ (C)
+            ws.cell(row=curr, column=4).value = row.นามสกุล  # นามสกุล (D)
+            
             for c in range(1, 23):
                 cell = ws.cell(row=curr, column=c); cell.border = border
                 cell.alignment = left_align if c in [3, 4] else center
-            if i % 25 == 0: ws.row_breaks.append(Break(id=curr)) # ตัดหน้าละ 25 คน
+            
+            # ตัดหน้าทุก 25 คน
+            if i % 25 == 0: ws.row_breaks.append(Break(id=curr))
 
+        # ใส่โลโก้
         img = get_logo_image()
         if img:
             img.width, img.height = 75, 75
             ws.add_image(img, 'H1')
 
+        ws.column_dimensions['A'].width = 5
+        ws.column_dimensions['B'].width = 15
         ws.column_dimensions['C'].width = 10
         ws.column_dimensions['D'].width = 7
         for c_idx in range(5, 22): ws.column_dimensions[get_column_letter(c_idx)].width = 3.5
+        ws.column_dimensions['V'].width = 10
 
     wb.save(output); return output.getvalue()
 
-# --- 3. ฟังก์ชันสร้างใบกรอกเกรด (Grade Report) ตามโครงสร้างที่คุณให้มา ---
+# --- 3. ฟังก์ชันสร้างใบกรอกเกรด (Grade Report) ---
+# ยึดโครงสร้างตามที่คุณส่งมาเป๊ะๆ
 def create_grade_report(target_year):
     df_all = load_data()
     if df_all.empty: return None
@@ -125,23 +137,24 @@ def create_grade_report(target_year):
         ws.merge_cells('I7:R7'); ws['I7'] = "ผู้สอน  ..........................................................................................."
         for cell in ['A6','D6','M6','A7','I7']: ws[cell].font = f_normal
 
-        # หัวตาราง (แถว 8-11)
+        # โครงสร้างหัวตาราง (แถว 8-11)
         for col, val in [('A8', 'เลขที่'), ('B8', 'รหัสประจำตัว')]:
             ws.merge_cells(f'{col}:{col[0]}11'); ws[col] = val; ws[col].alignment = center_align
+
         ws.merge_cells('C8:D11'); ws['C8'] = "ชื่อ - สกุล"; ws['C8'].alignment = center_align
 
-        # ทฤษฎี
+        # ทฤษฎี (E-J)
         ws.merge_cells('E8:J8'); ws['E8'] = "ทฤษฎี..........................หน่วยกิต"
         ws.merge_cells('E9:I9'); ws['E9'] = "คะแนนระหว่างภาค"
-        heads_th = {'E10':"เวลา/อุปกรณ์",'F10':"พฤติกรรม",'G10':"งาน/ทดสอบ",'H10':"สอบกลางภาค",'I10':"สอบปลายภาค",'J10':"คะแนนรวม"}
-        for cell, val in heads_th.items(): ws[cell] = val; ws[cell].alignment = rotate_align
+        headers_theory = {'E10':"เวลา/อุปกรณ์",'F10':"พฤติกรรม",'G10':"งาน/ทดสอบ",'H10':"สอบกลางภาค",'I10':"สอบปลายภาค",'J10':"คะแนนรวม"}
+        for cell, val in headers_theory.items(): ws[cell] = val; ws[cell].alignment = rotate_align
         ws.merge_cells('J9:J10')
 
-        # ปฏิบัติ
+        # ปฏิบัติ (K-P)
         ws.merge_cells('K8:P8'); ws['K8'] = "ปฏิบัติ..................หน่วยกิต"
         ws.merge_cells('K9:O9'); ws['K9'] = "คะแนนระหว่างภาค"
-        heads_pr = {'K10':"คุณภาพของงาน",'L10':"เวลา/อุปกรณ์",'M10':"พฤติกรรม",'N10':"การปฎิบัติงาน",'O10':"สอบทฤษฎีเชิงปฎิบัติ",'P10':"คะแนนรวม"}
-        for cell, val in heads_pr.items(): ws[cell] = val; ws[cell].alignment = rotate_align
+        headers_practice = {'K10':"คุณภาพของงาน",'L10':"เวลา/อุปกรณ์",'M10':"พฤติกรรม",'N10':"การปฎิบัติงาน",'O10':"สอบทฤษฎีเชิงปฎิบัติ",'P10':"คะแนนรวม"}
+        for cell, val in headers_practice.items(): ws[cell] = val; ws[cell].alignment = rotate_align
         ws.merge_cells('P9:P10')
 
         ws.merge_cells('Q8:Q9'); ws['Q8'] = "ระดับ"; ws['Q10'] = "คะแนน"; ws.merge_cells('Q10:Q11')
@@ -155,18 +168,21 @@ def create_grade_report(target_year):
             for c in range(1, 19):
                 cell = ws.cell(row=r, column=c); cell.border = border; cell.font = f_bold
 
-        # ข้อมูลนักศึกษา (แยก C-D)
+        # ใส่ข้อมูลนักศึกษา (แยกชื่อ C และ นามสกุล D)
         for i, row in enumerate(room_data.itertuples(), 1):
             curr = 11 + i
             ws.cell(row=curr, column=1).value = i
             ws.cell(row=curr, column=2).value = row.รหัสนักศึกษา
             ws.cell(row=curr, column=3).value = row.ชื่อ
             ws.cell(row=curr, column=4).value = row.นามสกุล
+            
             for c in range(1, 19):
                 cell = ws.cell(row=curr, column=c); cell.border = border
                 cell.alignment = left_align if c in [3, 4] else center_align
+            
             if i % 25 == 0: ws.row_breaks.append(Break(id=curr))
 
+        # ตั้งค่าความกว้างคอลัมน์
         ws.column_dimensions['A'].width = 3.86
         ws.column_dimensions['B'].width = 12.29
         ws.column_dimensions['C'].width = 10 
@@ -179,22 +195,48 @@ def create_grade_report(target_year):
 
     wb.save(output); return output.getvalue()
 
-# --- 4. UI ---
-st.title("🏫 ระบบจัดการวิทยาลัย")
-t1, t2, t3 = st.tabs(["📝 ลงทะเบียน", "🔍 แก้ไขข้อมูล", "📥 ดาวน์โหลด"])
+# --- 4. ส่วนแสดงผล UI ---
+st.title("🏫 ระบบพิมพ์เอกสารวิทยาลัยเทคโนโลยีนนทบุรี")
 
-with t3:
-    st.subheader("ดาวน์โหลดเอกสาร (หน้าละ 25 คน)")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.info("ใบรายชื่อ")
-        d_p1 = create_attendance_report("ปี1")
-        if d_p1: st.download_button("📥 โหลดใบรายชื่อ ปี 1", d_p1, "Attendance_P1.xlsx", use_container_width=True)
-        d_p2 = create_attendance_report("ปี2")
-        if d_p2: st.download_button("📥 โหลดใบรายชื่อ ปี 2", d_p2, "Attendance_P2.xlsx", use_container_width=True)
-    with c2:
-        st.success("ใบกรอกเกรด")
-        g_p1 = create_grade_report("ปี1")
-        if g_p1: st.download_button("📥 โหลดใบเกรด ปี 1", g_p1, "Grade_P1.xlsx", use_container_width=True)
-        g_p2 = create_grade_report("ปี2")
-        if g_p2: st.download_button("📥 โหลดใบเกรด ปี 2", g_p2, "Grade_P2.xlsx", use_container_width=True)
+tab1, tab2, tab3 = st.tabs(["📝 ลงทะเบียน", "🔍 แก้ไขข้อมูล", "📥 ดาวน์โหลดเอกสาร"])
+
+with tab1:
+    with st.form("reg_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        with c1: batch = st.text_input("รุ่น"); sid = st.text_input("รหัสนักศึกษา")
+        with c2: fname = st.text_input("ชื่อ"); lname = st.text_input("นามสกุล")
+        with c3:
+            level = st.selectbox("ระดับชั้น", ["ปี1", "ปี2"])
+            prefix = "O1" if level == "ปี1" else "O2"
+            room = st.selectbox("ห้อง", [f"{prefix}/{i}" for i in range(1, 16)])
+        if st.form_submit_button("💾 บันทึกข้อมูล"):
+            df = load_data()
+            new = pd.DataFrame([{"รุ่น": f"'{batch}", "รหัสนักศึกษา": f"'{sid}", "ชื่อ": fname.strip(), "นามสกุล": lname.strip(), "ระดับชั้น": level, "Room": room}])
+            conn.update(spreadsheet=st.secrets["gsheet_url"], data=pd.concat([df, new], ignore_index=True))
+            st.success("บันทึกสำเร็จ!"); st.rerun()
+
+with tab2:
+    df_edit = load_data()
+    if not df_edit.empty:
+        edited = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True)
+        if st.button("💾 บันทึกการเปลี่ยนแปลง"):
+            conn.update(spreadsheet=st.secrets["gsheet_url"], data=edited)
+            st.success("อัปเดตข้อมูลแล้ว!"); st.rerun()
+
+with tab3:
+    st.subheader("📥 ดาวน์โหลด (ไฟล์จะแยกห้องให้อัตโนมัติและตัดหน้าละ 25 คน)")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.info("📝 ใบรายชื่อ (Attendance)")
+        d1 = create_attendance_report("ปี1")
+        if d1: st.download_button("📥 โหลดใบรายชื่อ ปี 1", d1, "Attendance_P1.xlsx", use_container_width=True)
+        d2 = create_attendance_report("ปี2")
+        if d2: st.download_button("📥 โหลดใบรายชื่อ ปี 2", d2, "Attendance_P2.xlsx", use_container_width=True)
+
+    with col2:
+        st.success("📊 ใบกรอกเกรด (Grade Report)")
+        g1 = create_grade_report("ปี1")
+        if g1: st.download_button("📥 โหลดใบเกรด ปี 1", g1, "Grade_P1.xlsx", use_container_width=True)
+        g2 = create_grade_report("ปี2")
+        if g2: st.download_button("📥 โหลดใบเกรด ปี 2", g2, "Grade_P2.xlsx", use_container_width=True)
